@@ -104,17 +104,52 @@ export class Tracker {
 
   private applyToSplit(src: Split, e: GameEvent, clamp: boolean): Split[] {
     const s = src.slice();
-    const ok = (() => {
-      switch (e.kind) {
-        case 'gain':
-          return add(s, this.index(e.player), e.cards, 1, clamp);
-        case 'spend':
-          return add(s, this.index(e.player), e.cards, -1, clamp);
-        default:
-          return true;
+    switch (e.kind) {
+      case 'gain':
+        return add(s, this.index(e.player), e.cards, 1, clamp) ? [s] : [];
+      case 'spend':
+        return add(s, this.index(e.player), e.cards, -1, clamp) ? [s] : [];
+      case 'bankTrade': {
+        const p = this.index(e.player);
+        return add(s, p, e.give, -1, clamp) && add(s, p, e.get, 1, clamp) ? [s] : [];
       }
-    })();
-    return ok ? [s] : [];
+      case 'trade': {
+        const a = this.index(e.a);
+        const b = this.index(e.b);
+        const ok =
+          add(s, a, e.aGives, -1, clamp) &&
+          add(s, b, e.aGives, 1, clamp) &&
+          add(s, b, e.bGives, -1, clamp) &&
+          add(s, a, e.bGives, 1, clamp);
+        return ok ? [s] : [];
+      }
+      case 'steal': {
+        const thief = this.index(e.thief);
+        const victim = this.index(e.victim);
+        const options = e.resource ? [RESOURCES.indexOf(e.resource)] : RESOURCES.map((_, ri) => ri);
+        const out: Split[] = [];
+        for (const ri of options) {
+          if (src[victim * N + ri] < 1) continue;
+          const b = src.slice();
+          b[victim * N + ri] -= 1;
+          b[thief * N + ri] += 1;
+          out.push(b);
+        }
+        // Clamp mode: the victim had nothing we know of, so the thief gains nothing we can place.
+        if (out.length === 0 && clamp) out.push(s);
+        return out;
+      }
+      case 'monopoly': {
+        const p = this.index(e.player);
+        const ri = RESOURCES.indexOf(e.resource);
+        let others = 0;
+        for (let q = 0; q < this.players.length; q++) if (q !== p) others += s[q * N + ri];
+        if (others !== e.count && !clamp) return [];
+        for (let q = 0; q < this.players.length; q++) if (q !== p) s[q * N + ri] = 0;
+        s[p * N + ri] += e.count;
+        return [s];
+      }
+    }
   }
 }
 

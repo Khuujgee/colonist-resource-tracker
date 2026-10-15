@@ -42,3 +42,101 @@ describe('basics', () => {
   });
 });
 
+
+describe('trades, steals, monopoly', () => {
+  test('bank trade moves cards', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'A', cards: { wool: 4 } });
+    t.apply({ kind: 'bankTrade', player: 'A', give: { wool: 4 }, get: { ore: 1 } });
+    expect(h(t.view(), 'A')).toMatchObject({ total: 1, certain: { wool: 0, ore: 1 }, unknown: 0 });
+  });
+
+  test('player trade swaps cards', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'A', cards: { brick: 1 } });
+    t.apply({ kind: 'gain', player: 'B', cards: { grain: 1 } });
+    t.apply({ kind: 'trade', a: 'A', b: 'B', aGives: { brick: 1 }, bGives: { grain: 1 } });
+    expect(h(t.view(), 'A')).toMatchObject({ total: 1, certain: { brick: 0, grain: 1 } });
+    expect(h(t.view(), 'B')).toMatchObject({ total: 1, certain: { brick: 1, grain: 0 } });
+  });
+
+  test("hidden steal creates an unknown with the victim's possible resources", () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'A', cards: { grain: 1, wool: 2 } });
+    t.apply({ kind: 'steal', thief: 'B', victim: 'A', resource: null });
+    expect(h(t.view(), 'B')).toMatchObject({ total: 1, unknown: 1, possible: ['wool', 'grain'] });
+    expect(h(t.view(), 'A')).toMatchObject({
+      total: 2,
+      certain: { wool: 1, grain: 0 },
+      unknown: 1,
+      possible: ['wool', 'grain'],
+    });
+  });
+
+  test('a later spend resolves a hidden steal', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'A', cards: { grain: 1, wool: 2 } });
+    t.apply({ kind: 'steal', thief: 'B', victim: 'A', resource: null });
+    t.apply({ kind: 'spend', player: 'B', cards: { grain: 1 } });
+    expect(h(t.view(), 'B')).toMatchObject({ total: 0, unknown: 0 });
+    expect(h(t.view(), 'A')).toMatchObject({ total: 2, certain: { wool: 2 }, unknown: 0, possible: [] });
+    expect(t.outOfSync).toBe(false);
+  });
+
+  test('known steal moves the named resource', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'A', cards: { wool: 1 } });
+    t.apply({ kind: 'steal', thief: 'B', victim: 'A', resource: 'wool' });
+    expect(h(t.view(), 'B')).toMatchObject({ total: 1, certain: { wool: 1 }, unknown: 0 });
+    expect(h(t.view(), 'A')).toMatchObject({ total: 0 });
+  });
+
+  test('chained hidden steals', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'A', cards: { brick: 1, ore: 1 } });
+    t.apply({ kind: 'steal', thief: 'B', victim: 'A', resource: null });
+    t.apply({ kind: 'steal', thief: 'C', victim: 'B', resource: null });
+    expect(h(t.view(), 'C')).toMatchObject({ total: 1, unknown: 1, possible: ['brick', 'ore'] });
+    expect(h(t.view(), 'B')).toMatchObject({ total: 0 });
+    expect(h(t.view(), 'A')).toMatchObject({ total: 1, unknown: 1, possible: ['brick', 'ore'] });
+    t.apply({ kind: 'spend', player: 'C', cards: { ore: 1 } });
+    expect(h(t.view(), 'A')).toMatchObject({ total: 1, certain: { brick: 1 }, unknown: 0 });
+  });
+
+  test('monopoly keeps only consistent splits', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'C', cards: { grain: 1, ore: 1 } });
+    t.apply({ kind: 'steal', thief: 'B', victim: 'C', resource: null });
+    t.apply({ kind: 'monopoly', player: 'C', resource: 'grain', count: 0 });
+    expect(h(t.view(), 'B')).toMatchObject({ total: 1, certain: { ore: 1 }, unknown: 0 });
+    expect(h(t.view(), 'C')).toMatchObject({ total: 1, certain: { grain: 1, ore: 0 }, unknown: 0 });
+    expect(t.outOfSync).toBe(false);
+  });
+
+  test('monopoly takes the named resource from everyone else', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'A', cards: { grain: 2 } });
+    t.apply({ kind: 'gain', player: 'B', cards: { grain: 1, ore: 1 } });
+    t.apply({ kind: 'monopoly', player: 'C', resource: 'grain', count: 3 });
+    expect(h(t.view(), 'C')).toMatchObject({ total: 3, certain: { grain: 3 } });
+    expect(h(t.view(), 'A')).toMatchObject({ total: 0 });
+    expect(h(t.view(), 'B')).toMatchObject({ total: 1, certain: { ore: 1 } });
+  });
+});
+
+describe('recovery and limits', () => {
+  test('impossible event sets outOfSync and clamps at zero', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'spend', player: 'A', cards: { ore: 1 } });
+    expect(t.outOfSync).toBe(true);
+    expect(h(t.view(), 'A')).toMatchObject({ total: 0, unknown: 0 });
+  });
+
+  test('overLimit when splits exceed maxSplits', () => {
+    const t = new Tracker({ maxSplits: 2 });
+    t.apply({ kind: 'gain', player: 'A', cards: { brick: 1, wool: 1, ore: 1 } });
+    t.apply({ kind: 'steal', thief: 'B', victim: 'A', resource: null });
+    expect(t.splitCount).toBe(3);
+    expect(t.overLimit).toBe(true);
+  });
+});
