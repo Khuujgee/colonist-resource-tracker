@@ -5,6 +5,8 @@ export interface OverlayState {
   colors: Record<string, string>;
   outOfSync: boolean;
   overLimit: boolean;
+  /** Diagnostic text shown under the out-of-sync warning. */
+  detail?: string;
 }
 
 const EMOJI: Record<Resource, string> = {
@@ -77,6 +79,7 @@ export class Overlay {
   render(state: OverlayState): void {
     this.body.replaceChildren();
     if (state.outOfSync) this.body.append(warning('outOfSync', '⚠ Out of sync: a log line was missed or misread. Press Reset at the start of the next game.'));
+    if (state.outOfSync && state.detail) this.body.append(warning('detail', state.detail));
     if (state.overLimit) this.body.append(warning('overLimit', '⚠ Too many possibilities to track precisely.'));
     for (const v of state.views) {
       const row = document.createElement('div');

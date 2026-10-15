@@ -90,3 +90,41 @@ test('flags missed lines when positions skip', async () => {
   await flush();
   expect(session.missedLines).toBe(true);
 });
+
+test('ignores chat lines, whose positions overlap the log', async () => {
+  const chatLine = (index: number) => {
+    const el = document.createElement('div');
+    el.dataset.index = String(index);
+    el.innerHTML =
+      '<div class="feedMessage-O8TLknGe"><button><span class="username-j4cMk1M1">Bob<span>: </span></span></button>' +
+      '<span class="messagePart-XeUsOgLX">hi</span></div>';
+    return el;
+  };
+  const chat = document.createElement('div');
+  chat.className = 'chatContainer-wnnfw0or';
+  chat.append(chatLine(0), chatLine(1), chatLine(7));
+  const log = makeLog(line(0));
+  log.append(chat);
+  document.body.append(log);
+  session = start(document);
+  log.append(line(1));
+  await flush();
+  expect(grain(session)).toBe(4);
+  expect(session.missedLines).toBe(false);
+});
+
+test('"You" in the log is the local player from the player panel', () => {
+  const panel = document.createElement('div');
+  panel.innerHTML =
+    '<div class="playerInformation-FS7FmDYj currentUser-JOam6Xvt"><div class="usernameLarge-FoNEago3">Alice</div></div>';
+  const steal = line(1);
+  steal.querySelector('[class*="messagePart-"]')!.innerHTML =
+    'You stole <img src="x/card_grain.svg" alt="Grain"> from <span style="font-weight:600;color:#285FBD">Bob</span>';
+  const bobGain = line(0);
+  bobGain.querySelector('[class*="messagePart-"] span')!.textContent = 'Bob';
+  document.body.append(panel, makeLog(bobGain, steal));
+  session = start(document);
+  const views = session.tracker.view();
+  expect(views.map((v) => v.player)).toEqual(['Bob', 'Alice']);
+  expect(views.find((v) => v.player === 'Alice')!.certain.grain).toBe(1);
+});

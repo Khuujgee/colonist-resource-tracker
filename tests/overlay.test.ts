@@ -48,3 +48,12 @@ test('reset button calls onReset', () => {
   host.firstElementChild!.shadowRoot!.querySelector<HTMLElement>('[data-action="reset"]')!.click();
   expect(onReset).toHaveBeenCalledOnce();
 });
+
+test('render shows diagnostic detail under the out-of-sync warning', () => {
+  const host = document.createElement('div');
+  const o = new Overlay(() => {});
+  o.mount(host);
+  o.render({ views: [], colors: {}, outOfSync: true, overLimit: false, detail: 'expected 0, got 7' });
+  const root = host.firstElementChild!.shadowRoot!;
+  expect(root.querySelector('[data-warning="detail"]')?.textContent).toBe('expected 0, got 7');
+});

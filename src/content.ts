@@ -1,5 +1,5 @@
 import { Overlay } from './overlay';
-import { SELECTORS, entryPlayerColors, isKnownNoop, parseEntry } from './parser';
+import { SELECTORS, describeEntry, entryPlayerColors, findLocalPlayer, isKnownNoop, parseEntry } from './parser';
 import { Tracker } from './tracker';
 
 export interface Session {
@@ -25,6 +25,7 @@ export function start(doc: Document = document): Session {
   let container: Element | null = null;
   let lastIndex = -1;
   let missedLines = false;
+  let detail = '';
   let unparsed = 0;
   let colors: Record<string, string> = {};
 
@@ -32,6 +33,7 @@ export function start(doc: Document = document): Session {
     tracker.reset();
     lastIndex = -1;
     missedLines = false;
+    detail = '';
     colors = {};
   }
 
@@ -43,11 +45,20 @@ export function start(doc: Document = document): Session {
     }
     if (container) {
       const fresh = [...container.querySelectorAll<HTMLElement>(SELECTORS.logEntry)]
+        .filter((el) => !el.closest(SELECTORS.chat)) // chat numbers its lines separately
         .map((el) => ({ el, index: Number(el.dataset.index) }))
         .filter((e) => Number.isInteger(e.index) && e.index > lastIndex)
         .sort((a, b) => a.index - b.index);
       for (const { el, index } of fresh) {
-        if (index !== lastIndex + 1) missedLines = true;
+        if (index !== lastIndex + 1) {
+          missedLines = true;
+          detail ||= `Expected line ${lastIndex + 1}, got ${index}. Lines on screen: ${fresh.map((e) => e.index).join(', ')}. First: "${fresh[0].el.textContent?.trim().slice(0, 60)}"`;
+          console.warn(
+            `[tracker] missed lines: expected ${lastIndex + 1}, got ${index}.`,
+            'Lines in the page now:',
+            fresh.map((e) => `${e.index}: ${e.el.textContent?.trim().slice(0, 50)}`),
+          );
+        }
         lastIndex = index;
         apply(el);
       }
@@ -57,16 +68,17 @@ export function start(doc: Document = document): Session {
       colors,
       outOfSync: tracker.outOfSync || missedLines,
       overLimit: tracker.overLimit,
+      detail,
     });
   }
 
   function apply(el: HTMLElement): void {
     Object.assign(colors, entryPlayerColors(el));
-    const events = parseEntry(el);
+    const events = parseEntry(el, findLocalPlayer(doc));
     for (const e of events) tracker.apply(e);
     if (events.length === 0 && !isKnownNoop(el)) {
       unparsed++;
-      console.debug(`[tracker] unparsed (${unparsed}):`, el.textContent?.trim());
+      console.debug(`[tracker] unparsed (${unparsed}):`, describeEntry(el), el.textContent?.trim());
     }
   }
 
