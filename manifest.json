@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Colonist Resource Tracker",
+  "version": "0.1.0",
+  "description": "Tracks each player's resource cards from the colonist.io game log.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://colonist.io/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
