@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { Tracker } from '../src/tracker';
-import type { HandView } from '../src/types';
+import type { HandView, Resource } from '../src/types';
 
 const h = (views: HandView[], name: string) => {
   const v = views.find((x) => x.player === name);
@@ -138,5 +138,72 @@ describe('recovery and limits', () => {
     t.apply({ kind: 'steal', thief: 'B', victim: 'A', resource: null });
     expect(t.splitCount).toBe(3);
     expect(t.overLimit).toBe(true);
+  });
+});
+
+// The original Python SetSystem scenarios: add → gain, remove → spend,
+// transfer(a, b) → hidden steal with thief b and victim a.
+describe('original Python scenarios', () => {
+  const gain = (t: Tracker, player: string, r: Resource, n = 1) =>
+    t.apply({ kind: 'gain', player, cards: { [r]: n } });
+  const spend = (t: Tracker, player: string, r: Resource, n = 1) =>
+    t.apply({ kind: 'spend', player, cards: { [r]: n } });
+  const transfer = (t: Tracker, victim: string, thief: string) =>
+    t.apply({ kind: 'steal', thief, victim, resource: null });
+
+  test('CASE 1', () => {
+    const t = new Tracker();
+    gain(t, 'red', 'grain');
+    gain(t, 'red', 'wool', 2);
+    transfer(t, 'red', 'green');
+    spend(t, 'green', 'grain');
+    expect(h(t.view(), 'red')).toMatchObject({ total: 2, certain: { wool: 2 }, unknown: 0 });
+    expect(h(t.view(), 'green')).toMatchObject({ total: 0 });
+    expect(t.outOfSync).toBe(false);
+  });
+
+  test('CASE 2', () => {
+    const t = new Tracker();
+    gain(t, 'red', 'grain');
+    gain(t, 'red', 'wool');
+    transfer(t, 'red', 'green');
+    transfer(t, 'red', 'blue');
+    spend(t, 'blue', 'wool');
+    expect(h(t.view(), 'red')).toMatchObject({ total: 0 });
+    expect(h(t.view(), 'green')).toMatchObject({ total: 1, certain: { grain: 1 }, unknown: 0 });
+    expect(h(t.view(), 'blue')).toMatchObject({ total: 0 });
+    expect(t.outOfSync).toBe(false);
+  });
+
+  test('CASE 3', () => {
+    const t = new Tracker();
+    gain(t, 'red', 'grain', 5);
+    gain(t, 'red', 'brick');
+    gain(t, 'green', 'grain');
+    transfer(t, 'red', 'green');
+    spend(t, 'green', 'grain');
+    transfer(t, 'green', 'blue');
+    expect(h(t.view(), 'red')).toMatchObject({ total: 5, unknown: 1, possible: ['brick', 'grain'] });
+    expect(h(t.view(), 'green')).toMatchObject({ total: 0 });
+    expect(h(t.view(), 'blue')).toMatchObject({ total: 1, unknown: 1, possible: ['brick', 'grain'] });
+    expect(t.outOfSync).toBe(false);
+  });
+
+  test('CASE 4', () => {
+    const t = new Tracker();
+    gain(t, 'red', 'wool');
+    for (const p of ['red', 'green', 'blue']) gain(t, p, 'brick', 10);
+    transfer(t, 'red', 'green');
+    transfer(t, 'green', 'blue');
+    for (const p of ['red', 'green', 'blue']) spend(t, p, 'brick', 9);
+    expect(t.outOfSync).toBe(false);
+    expect(h(t.view(), 'red')).toMatchObject({ total: 1, unknown: 1, possible: ['brick', 'wool'] });
+    expect(h(t.view(), 'green')).toMatchObject({ total: 1, unknown: 1, possible: ['brick', 'wool'] });
+    expect(h(t.view(), 'blue')).toMatchObject({
+      total: 2,
+      certain: { brick: 1 },
+      unknown: 1,
+      possible: ['brick', 'wool'],
+    });
   });
 });
