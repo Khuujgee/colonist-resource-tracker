@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { Overlay } from '../src/overlay';
 import { start } from '../src/content';
 import sample from './fixtures/sample-entries.html?raw';
 
@@ -60,13 +61,52 @@ test('does not reset when old entries are removed', async () => {
   expect(grain(session)).toBe(4);
 });
 
-test('resets when the log container is replaced (new game)', async () => {
-  const log = makeLog(line(0));
+/** A payout line at `index` for a different player, i.e. a different game's log. */
+const otherGame = (index: number) => {
+  const el = line(index);
+  el.querySelector('[class*="messagePart-"] span')!.textContent = 'Zed';
+  return el;
+};
+
+test('a new game in a new log container resets tracking', async () => {
+  const log = makeLog(line(0), line(1));
   document.body.append(log);
   session = start(document);
-  log.replaceWith(makeLog());
+  log.replaceWith(makeLog(otherGame(0), otherGame(1)));
   await flush();
-  expect(session.tracker.view()).toEqual([]);
+  expect(session.tracker.view().map((v) => v.player)).toEqual(['Zed']);
+});
+
+test('a rematch reusing the same log container resets tracking', async () => {
+  const log = makeLog(line(0), line(1), line(2));
+  document.body.append(log);
+  session = start(document);
+  log.replaceChildren(otherGame(0), otherGame(1));
+  await flush();
+  expect(session.tracker.view().map((v) => v.player)).toEqual(['Zed']);
+  expect(session.tracker.view()[0].certain.grain).toBe(4);
+  expect(session.missedLines).toBe(false);
+});
+
+test('one line changing in place does not reset tracking', async () => {
+  const log = makeLog(line(0), line(1));
+  document.body.append(log);
+  session = start(document);
+  log.firstElementChild!.replaceWith(otherGame(0));
+  await flush();
+  expect(grain(session)).toBe(4);
+});
+
+test('the log container being remounted mid-game keeps tracking', async () => {
+  const log = makeLog(line(0), line(1));
+  document.body.append(log);
+  session = start(document);
+  log.remove();
+  await flush();
+  document.body.append(makeLog(line(1), line(2)));
+  await flush();
+  expect(grain(session)).toBe(6);
+  expect(session.missedLines).toBe(false);
 });
 
 test('waits for the log container to appear', async () => {
@@ -127,4 +167,26 @@ test('"You" in the log is the local player from the player panel', () => {
   const views = session.tracker.view();
   expect(views.map((v) => v.player)).toEqual(['Bob', 'Alice']);
   expect(views.find((v) => v.player === 'Alice')!.certain.grain).toBe(1);
+});
+
+const overlayRoot = () =>
+  [...document.body.children].find((el) => el.shadowRoot)!.shadowRoot!;
+
+test('unrecognised lines are shown in the overlay', async () => {
+  const odd = line(1);
+  odd.querySelector('[class*="messagePart-"]')!.innerHTML = 'Something brand new happened';
+  document.body.append(makeLog(line(0), odd));
+  session = start(document);
+  expect(overlayRoot().querySelector('[data-warning="unparsed"]')?.textContent).toContain('1 log line');
+});
+
+test('does not re-render the overlay on unrelated page changes', async () => {
+  document.body.append(makeLog(line(0)));
+  const render = vi.spyOn(Overlay.prototype, 'render');
+  session = start(document);
+  const before = render.mock.calls.length;
+  document.body.append(document.createElement('div'));
+  await flush();
+  expect(render.mock.calls.length).toBe(before);
+  render.mockRestore();
 });

@@ -132,6 +132,28 @@ describe('recovery and limits', () => {
     expect(h(t.view(), 'A')).toMatchObject({ total: 0, unknown: 0 });
   });
 
+  test('a known steal in recovery still gives the thief the card', () => {
+    const t = new Tracker();
+    t.apply({ kind: 'gain', player: 'Bob', cards: { grain: 1 } });
+    t.apply({ kind: 'steal', thief: 'Alice', victim: 'Bob', resource: 'wool' });
+    expect(t.outOfSync).toBe(true);
+    expect(h(t.view(), 'Alice')).toMatchObject({ total: 1, certain: { wool: 1 } });
+    expect(h(t.view(), 'Bob')).toMatchObject({ total: 1, certain: { grain: 1, wool: 0 } });
+  });
+
+  test('stops tracking instead of growing past the hard limit', () => {
+    const t = new Tracker({ maxSplits: 1, hardLimit: 3 });
+    t.apply({ kind: 'gain', player: 'A', cards: { brick: 1, wool: 1 } });
+    t.apply({ kind: 'steal', thief: 'B', victim: 'A', resource: null }); // 2 splits
+    t.apply({ kind: 'gain', player: 'C', cards: { brick: 1, wool: 1, ore: 1 } });
+    t.apply({ kind: 'steal', thief: 'D', victim: 'C', resource: null }); // would be 6
+    expect(t.splitCount).toBe(2);
+    expect(t.overLimit).toBe(true);
+    expect(t.stopped).toBe(true);
+    t.apply({ kind: 'gain', player: 'A', cards: { ore: 5 } });
+    expect(h(t.view(), 'A').certain.ore).toBe(0);
+  });
+
   test('overLimit when splits exceed maxSplits', () => {
     const t = new Tracker({ maxSplits: 2 });
     t.apply({ kind: 'gain', player: 'A', cards: { brick: 1, wool: 1, ore: 1 } });

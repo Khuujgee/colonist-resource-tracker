@@ -15,11 +15,18 @@ export class Tracker {
   private players: string[] = [];
   private splits = new Map<string, Split>();
   private readonly maxSplits: number;
+  private readonly hardLimit: number;
   private _outOfSync = false;
   private _overLimit = false;
+  private _stopped = false;
 
-  constructor(opts: { maxSplits?: number } = {}) {
+  /**
+   * maxSplits: above this, overLimit is set (a warning).
+   * hardLimit: an event that would exceed this stops tracking, so the page never freezes.
+   */
+  constructor(opts: { maxSplits?: number; hardLimit?: number } = {}) {
     this.maxSplits = opts.maxSplits ?? 5000;
+    this.hardLimit = opts.hardLimit ?? 200_000;
     this.reset();
   }
 
@@ -31,6 +38,11 @@ export class Tracker {
     return this._overLimit;
   }
 
+  /** True once tracking stopped because it would have exceeded the hard limit. */
+  get stopped(): boolean {
+    return this._stopped;
+  }
+
   get splitCount(): number {
     return this.splits.size;
   }
@@ -40,15 +52,22 @@ export class Tracker {
     this.splits = new Map([['', new Int32Array(0)]]);
     this._outOfSync = false;
     this._overLimit = false;
+    this._stopped = false;
   }
 
   apply(event: GameEvent): void {
+    if (this._stopped) return;
     for (const p of playersOf(event)) this.index(p);
 
     let next = this.step(event, false);
     if (next.size === 0) {
       next = this.step(event, true);
       this._outOfSync = true;
+    }
+    if (next.size > this.hardLimit) {
+      this._stopped = true;
+      this._overLimit = true;
+      return;
     }
     this.splits = next;
     if (this.splits.size > this.maxSplits) this._overLimit = true;
@@ -135,8 +154,12 @@ export class Tracker {
           b[thief * N + ri] += 1;
           out.push(b);
         }
-        // Clamp mode: the victim had nothing we know of, so the thief gains nothing we can place.
-        if (out.length === 0 && clamp) out.push(s);
+        if (out.length === 0 && clamp) {
+          // The victim had none we know of. A named card still goes to the thief;
+          // an unknown one can't be placed, so the thief stays a card short.
+          if (e.resource) s[thief * N + RESOURCES.indexOf(e.resource)] += 1;
+          out.push(s);
+        }
         return out;
       }
       case 'monopoly': {

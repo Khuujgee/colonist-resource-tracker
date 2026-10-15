@@ -57,3 +57,12 @@ test('render shows diagnostic detail under the out-of-sync warning', () => {
   const root = host.firstElementChild!.shadowRoot!;
   expect(root.querySelector('[data-warning="detail"]')?.textContent).toBe('expected 0, got 7');
 });
+
+test('render shows the unparsed-lines warning', () => {
+  const host = document.createElement('div');
+  const o = new Overlay(() => {});
+  o.mount(host);
+  o.render({ views: [], colors: {}, outOfSync: false, overLimit: false, unparsed: { count: 2, last: '@ did a thing' } });
+  const w = host.firstElementChild!.shadowRoot!.querySelector('[data-warning="unparsed"]');
+  expect(w?.textContent).toBe('⚠ 2 log lines not understood (last: "@ did a thing")');
+});
