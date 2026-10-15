@@ -1,3 +1,5 @@
 node_modules
 dist
 .superpowers
+tests/fixtures/game-log.html
+tests/fixtures/full-log*.html
